@@ -1,0 +1,67 @@
+# electron-builder config — run via `pnpm dist`.
+# Produces installers for whichever OS runs the build: NSIS + portable on
+# Windows, dmg + zip on macOS (see .github/workflows/build-mac.yml — macOS
+# builds can only be produced on a real Mac, so that's done via a GitHub
+# Actions macOS runner rather than on a Windows dev machine).
+appId: com.consultorio360.app
+productName: Consultorio360
+
+directories:
+  output: release
+  buildResources: build
+
+files:
+  - dist/**/*
+  - dist-electron/**/*
+  - package.json
+
+# `template.db` is a pre-migrated, empty SQLite database (see
+# scripts/build-template-db.mjs) copied into the doctor's userData folder
+# on first launch — see electron/main/db/bootstrap.ts. This avoids having
+# to bundle the Prisma migration engine/CLI into the packaged app just to
+# create tables on a brand-new install.
+#
+# `@prisma/client` and `.prisma/client` (the generated client + native
+# query engine) are copied here too, because electron-builder's automatic
+# dependency walker only follows declared package.json "dependencies"
+# edges — it never finds `.prisma/client`, which @prisma/client reaches
+# via a bare specifier (`require(".prisma/client/default")`), not a
+# relative path. That specifier only resolves inside a real directory
+# literally named `node_modules` (Node walks up looking for exactly that
+# name) — a sibling folder with any other name silently fails, which is
+# why this must stay nested as `prisma-runtime/node_modules/...` rather
+# than `prisma-runtime/@prisma/...`. See electron/main/db/client.ts for
+# the matching runtime require.
+extraResources:
+  - from: prisma/template.db
+    to: template.db
+  - from: node_modules/@prisma/client
+    to: prisma-runtime/node_modules/@prisma/client
+  - from: node_modules/.prisma/client
+    to: prisma-runtime/node_modules/.prisma/client
+
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+    - target: portable
+      arch: [x64]
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: always
+  createStartMenuShortcut: true
+
+mac:
+  target:
+    - target: dmg
+      arch: [x64, arm64]
+    - target: zip
+      arch: [x64, arm64]
+  category: public.app-category.medical
+  # No Apple Developer ID certificate yet — build unsigned rather than
+  # let electron-builder auto-discover some local identity and produce a
+  # half-signed binary. Unsigned means Gatekeeper will warn on first open
+  # (right-click → Open), same tradeoff as the unsigned Windows build.
+  identity: null

@@ -1,0 +1,333 @@
+// Consultorio360
+// Prisma schema for the Desktop MVP (SQLite, WAL mode enabled via connection URL).
+
+generator client {
+  provider      = "prisma-client-js"
+  // "native" covers whatever OS/arch runs `prisma generate` (e.g. Windows
+  // dev machine, or a GitHub Actions macOS runner). The rest are listed
+  // explicitly so a single `generate` produces engines for every target
+  // electron-builder packages, regardless of the generating machine's own
+  // architecture — Prisma downloads prebuilt engines, it doesn't compile.
+  binaryTargets = ["native", "windows", "darwin", "darwin-arm64"]
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// --- Core -------------------------------------------------------------
+
+enum Role {
+  DOCTOR
+  RECEPTIONIST
+  ADMIN
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  role         Role     @default(DOCTOR)
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  doctor    Doctor?
+  auditLogs AuditLog[]
+}
+
+model Doctor {
+  id            String  @id @default(cuid())
+  userId        String  @unique
+  fullName      String
+  specialty     String?
+  licenseNumber String?
+  signaturePath String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user                  User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  appointments          Appointment[]
+  consultations         Consultation[]
+  prescriptions         Prescription[]
+  certificates          Certificate[]
+  prescriptionTemplates PrescriptionTemplate[]
+}
+
+// --- Pacientes / Historia Clínica --------------------------------------
+
+enum Sex {
+  M
+  F
+  OTHER
+}
+
+enum InsuranceType {
+  IESS
+  ISSFA
+  ISSPOL
+  PRIVADO
+  NINGUNO
+}
+
+model Patient {
+  id                     String        @id @default(cuid())
+  firstName              String
+  lastName               String
+  documentId             String?       @unique
+  birthDate              DateTime?
+  sex                    Sex?
+  phone                  String?
+  email                  String?
+  address                String?
+  notes                  String?
+  insuranceType          InsuranceType?
+  emergencyContactName   String?
+  emergencyContactPhone  String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  appointments  Appointment[]
+  medicalRecord MedicalRecord?
+  payments      Payment[]
+  certificates  Certificate[]
+  attachments   Attachment[]
+}
+
+model MedicalRecord {
+  id                String  @id @default(cuid())
+  patientId         String  @unique
+  bloodType         String?
+  chronicConditions String?
+  allergies         String?
+  familyHistory     String?
+  surgicalHistory   String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  patient       Patient        @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  consultations Consultation[]
+  attachments   Attachment[]
+}
+
+// --- Agenda -------------------------------------------------------------
+
+enum AppointmentStatus {
+  SCHEDULED
+  CONFIRMED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+}
+
+model Appointment {
+  id          String            @id @default(cuid())
+  patientId   String
+  doctorId    String
+  scheduledAt DateTime
+  durationMin Int               @default(30)
+  status      AppointmentStatus @default(SCHEDULED)
+  reason      String?
+  notes       String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  patient      Patient       @relation(fields: [patientId], references: [id])
+  doctor       Doctor        @relation(fields: [doctorId], references: [id])
+  consultation Consultation?
+
+  @@index([scheduledAt])
+}
+
+// --- Consulta -------------------------------------------------------------
+
+model Consultation {
+  id              String   @id @default(cuid())
+  appointmentId   String?  @unique
+  medicalRecordId String
+  doctorId        String
+  date            DateTime @default(now())
+  reasonForVisit  String?
+  symptoms        String?
+  physicalExam    String?
+  vitalSigns      String?
+  plan            String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  appointment   Appointment?  @relation(fields: [appointmentId], references: [id])
+  medicalRecord MedicalRecord @relation(fields: [medicalRecordId], references: [id])
+  doctor        Doctor        @relation(fields: [doctorId], references: [id])
+  diagnoses     Diagnosis[]
+  prescriptions Prescription[]
+  attachments   Attachment[]
+}
+
+model Diagnosis {
+  id             String  @id @default(cuid())
+  consultationId String
+  code           String?
+  description    String
+  isPrimary      Boolean @default(false)
+
+  createdAt DateTime @default(now())
+
+  consultation Consultation @relation(fields: [consultationId], references: [id], onDelete: Cascade)
+}
+
+// --- Recetas -------------------------------------------------------------
+
+model Prescription {
+  id             String   @id @default(cuid())
+  consultationId String
+  doctorId       String
+  issuedAt       DateTime @default(now())
+  notes          String?
+
+  createdAt DateTime @default(now())
+
+  consultation Consultation       @relation(fields: [consultationId], references: [id])
+  doctor       Doctor             @relation(fields: [doctorId], references: [id])
+  items        PrescriptionItem[]
+}
+
+model PrescriptionItem {
+  id             String  @id @default(cuid())
+  prescriptionId String
+  drugName       String
+  dosage         String
+  frequency      String
+  duration       String
+  instructions   String?
+
+  prescription Prescription @relation(fields: [prescriptionId], references: [id], onDelete: Cascade)
+}
+
+// Reusable full-prescription presets ("gripe común", etc.) — distinct from
+// PrescriptionItem, which belongs to an already-issued Prescription.
+model PrescriptionTemplate {
+  id        String   @id @default(cuid())
+  doctorId  String
+  name      String
+  createdAt DateTime @default(now())
+
+  doctor Doctor                     @relation(fields: [doctorId], references: [id])
+  items  PrescriptionTemplateItem[]
+}
+
+model PrescriptionTemplateItem {
+  id           String  @id @default(cuid())
+  templateId   String
+  drugName     String
+  dosage       String
+  frequency    String
+  duration     String
+  instructions String?
+
+  template PrescriptionTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+}
+
+// --- Certificados -------------------------------------------------------------
+
+enum CertificateType {
+  MEDICAL_LEAVE
+  FITNESS
+  ATTENDANCE
+  OTHER
+}
+
+model Certificate {
+  id        String          @id @default(cuid())
+  patientId String
+  doctorId  String
+  type      CertificateType
+  content   String
+  issuedAt  DateTime        @default(now())
+  filePath  String?
+
+  createdAt DateTime @default(now())
+
+  patient Patient @relation(fields: [patientId], references: [id])
+  doctor  Doctor  @relation(fields: [doctorId], references: [id])
+}
+
+// --- Caja -------------------------------------------------------------
+
+enum PaymentMethod {
+  CASH
+  CARD
+  TRANSFER
+  OTHER
+}
+
+model Payment {
+  id      String        @id @default(cuid())
+  patientId String
+  amount  Float
+  method  PaymentMethod
+  concept String?
+  paidAt  DateTime      @default(now())
+
+  createdAt DateTime @default(now())
+
+  patient Patient  @relation(fields: [patientId], references: [id])
+  receipt Receipt?
+}
+
+model Receipt {
+  id        String   @id @default(cuid())
+  paymentId String   @unique
+  number    String   @unique
+  issuedAt  DateTime @default(now())
+  filePath  String?
+
+  payment Payment @relation(fields: [paymentId], references: [id])
+}
+
+// --- Archivos -------------------------------------------------------------
+
+model Attachment {
+  id              String  @id @default(cuid())
+  patientId       String?
+  medicalRecordId String?
+  consultationId  String?
+  fileName        String
+  filePath        String
+  mimeType        String?
+  sizeBytes       Int?
+
+  createdAt DateTime @default(now())
+
+  patient       Patient?       @relation(fields: [patientId], references: [id])
+  medicalRecord MedicalRecord? @relation(fields: [medicalRecordId], references: [id])
+  consultation  Consultation?  @relation(fields: [consultationId], references: [id])
+}
+
+// --- Seguridad / Configuración -------------------------------------------------------------
+
+model AuditLog {
+  id       String   @id @default(cuid())
+  userId   String?
+  action   String
+  entity   String
+  entityId String?
+  metadata String?
+
+  createdAt DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id])
+}
+
+model Settings {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     String
+  updatedAt DateTime @updatedAt
+}

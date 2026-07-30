@@ -1,0 +1,42 @@
+name: Build macOS installer
+
+# macOS builds can only be produced on a real Mac (Apple's tooling for
+# .app/.dmg packaging isn't available on Windows/Linux), so this runs on
+# GitHub's hosted macOS runner instead of the Windows dev machine.
+#
+# Manual trigger by default (Actions tab → this workflow → "Run workflow")
+# so it doesn't burn CI minutes on every push — macOS runners are billed
+# at a much higher multiplier than Linux ones. Also runs on version tags
+# (v1.0.0 etc.) in case you want a tag to double as a release trigger.
+on:
+  workflow_dispatch: {}
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-mac:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install
+
+      - run: pnpm dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: consultorio360-mac
+          path: |
+            release/*.dmg
+            release/*.zip
+          if-no-files-found: error
