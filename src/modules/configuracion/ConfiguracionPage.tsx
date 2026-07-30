@@ -1,6 +1,7 @@
 import { DoctorProfileForm } from './components/DoctorProfileForm'
 import { BillingSettingsForm } from './components/BillingSettingsForm'
 import { BackupsPanel } from './components/BackupsPanel'
+import { FactoryResetPanel } from './components/FactoryResetPanel'
 
 export function ConfiguracionPage() {
   return (
@@ -8,6 +9,7 @@ export function ConfiguracionPage() {
       <DoctorProfileForm />
       <BillingSettingsForm />
       <BackupsPanel />
+      <FactoryResetPanel />
     </div>
   )
 }

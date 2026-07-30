@@ -24,6 +24,13 @@ prisma/*.db-wal
 prisma/*.db-shm
 electron/main/db/generated
 
+# Local dev database (DATABASE_URL in .env points here, at the project
+# root, not under prisma/)
+/*.db
+/*.db-journal
+/*.db-wal
+/*.db-shm
+
 # Application storage (documents referenced by Attachments)
 storage/
 

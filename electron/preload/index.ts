@@ -48,6 +48,8 @@ const { contextBridge, ipcRenderer } = require('electron') as typeof import('ele
 const api = {
   core: {
     ping: (): Promise<PingResult> => ipcRenderer.invoke(IpcChannels.core.ping),
+    factoryReset: (token: string): Promise<void> =>
+      ipcRenderer.invoke(IpcChannels.core.factoryReset, token),
   },
   pacientes: {
     list: (search?: string): Promise<Patient[]> =>

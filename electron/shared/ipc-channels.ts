@@ -5,6 +5,7 @@
 export const IpcChannels = {
   core: {
     ping: 'core:ping',
+    factoryReset: 'core:factoryReset',
   },
   pacientes: {
     list: 'pacientes:list',
