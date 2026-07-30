@@ -4,18 +4,48 @@ name: Build macOS installer
 # .app/.dmg packaging isn't available on Windows/Linux), so this runs on
 # GitHub's hosted macOS runner instead of the Windows dev machine.
 #
-# Manual trigger by default (Actions tab → this workflow → "Run workflow")
-# so it doesn't burn CI minutes on every push — macOS runners are billed
-# at a much higher multiplier than Linux ones. Also runs on version tags
-# (v1.0.0 etc.) in case you want a tag to double as a release trigger.
+# Triggers automatically whenever package.json changes on master, but
+# `check-version` (a cheap Linux job) only lets the expensive macOS job
+# actually run if the version field is one that hasn't been released yet
+# — macOS runners are billed at a much higher multiplier than Linux ones,
+# so this avoids burning minutes on every push that touches package.json
+# for unrelated reasons (a dependency bump, etc.). "Run workflow" in the
+# Actions tab always builds regardless, for one-off testing.
 on:
   workflow_dispatch: {}
   push:
-    tags:
-      - 'v*'
+    branches: [master]
+    paths:
+      - 'package.json'
+
+permissions:
+  contents: write
 
 jobs:
+  check-version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      should-build: ${{ steps.check.outputs.should-build }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: version
+        run: echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - id: check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if gh release view "v${{ steps.version.outputs.version }}" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            echo "should-build=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "should-build=true" >> "$GITHUB_OUTPUT"
+          fi
+
   build-mac:
+    needs: check-version
+    if: needs.check-version.outputs.should-build == 'true' || github.event_name == 'workflow_dispatch'
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
@@ -40,3 +70,17 @@ jobs:
             release/*.dmg
             release/*.zip
           if-no-files-found: error
+
+      # Only publish a Release for real version bumps (skip on manual
+      # re-runs of an already-released version — the artifact upload
+      # above still gives you the files in that case).
+      - name: Publish GitHub Release
+        if: needs.check-version.outputs.should-build == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "v${{ needs.check-version.outputs.version }}" \
+            release/*.dmg release/*.zip \
+            --repo "${{ github.repository }}" \
+            --title "Consultorio360 v${{ needs.check-version.outputs.version }}" \
+            --notes "Build automático de macOS para la versión ${{ needs.check-version.outputs.version }}."
