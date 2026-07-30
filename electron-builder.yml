@@ -6,6 +6,13 @@
 appId: com.consultorio360.app
 productName: Consultorio360
 
+# electron-builder auto-detects a "github" publish target whenever the
+# project sits in a git repo with a github.com remote, and then demands
+# a GH_TOKEN even for a plain local build — we only ever want the raw
+# installers, never an automatic GitHub Release, so publishing is
+# disabled outright.
+publish: null
+
 directories:
   output: release
   buildResources: build
